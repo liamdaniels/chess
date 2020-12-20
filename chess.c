@@ -1,6 +1,7 @@
 #include "chess.h"
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdio.h>
 
 /* For debugging :) */
@@ -48,10 +49,13 @@ int Move_castle_type(Move move)
 		return 0; /* Neither */
 }
 
-void Move_set_shorttitle(Move *move, Position *pos)
+void Move_set_shorttitle(Move *move, ChessGame *game)
 {
+	Position *pos = game->current_pos;
+
 	/* Assume valid piece */
-	ChessPiece piece = pos->piece_locations[move->src] % 6;
+	ChessPiece piece_orig_color = pos->piece_locations[move->src];
+	ChessPiece piece = piece_orig_color % 6;
 	int on_letter = 0;
 	switch(piece)
 	{
@@ -100,10 +104,48 @@ void Move_set_shorttitle(Move *move, Position *pos)
 			printf("something is terribly wrong");
 			break;
 	}
+	int src_col = move->src % 8;
+	int src_row = (move->src - src_col)/8;
 	int col = move->dest % 8;
 	int row = (move->dest - col)/8;
 
+	/* Add specifying file/rank, if necessary */
+	if (piece != W_P){
+		int ambiguous = 0;
+		int same_row  = 0;
+		int same_col  = 0;
+		int r, c;
+
+		for (r = 0; r < 8; r++)
+			for (c = 0; c < 8; c++)
+				if (Game_pieceat(game, r, c) == piece_orig_color
+					&& (r != src_row || c != src_col)){
+					Move temp = *move;
+					temp.src = c + (8 * r);
+					if (Game_get_legal(game, temp) > -1){
+						ambiguous = 1;
+						if (r == src_row)
+							same_row = 1;
+						if (c == src_col)
+							same_col = 1;
+					}
+				}
+
+		if (ambiguous){
+			if (!same_col)
+				move->title[on_letter++] = src_col + 'a';
+			else if (!same_row)
+				move->title[on_letter++] = src_row + '1';
+			else{
+				move->title[on_letter++] = src_col + 'a';
+				move->title[on_letter++] = src_row + '1';
+			}
+		}
+	}
+
 	if (Move_is_capture(*move, pos)){
+		if (piece == W_P)
+			move->title[on_letter++] = src_col + 'a'; /* e.g. bxa4 */
 		move->title[on_letter] = 'x';
 		on_letter++;
 	}
@@ -137,6 +179,18 @@ void Move_set_shorttitle(Move *move, Position *pos)
 		}
 		on_letter++;
 	}
+
+	/* Append check and checkmate notation, if necessary. */
+	ChessGame *game_copy = Game_create();
+	Game_copy(game, game_copy);
+	Game_advanceturn(game_copy, *move);
+	if (Position_in_check(game_copy->current_pos)){
+		if (game_copy->num_possible_moves == 0) /* Checkmate */
+			move->title[on_letter++] = '#';
+		else /* Just check */
+			move->title[on_letter++] = '+';
+	}
+	Game_destroy(game_copy);
 
 	move->title[on_letter] = '\0';
 }
@@ -947,15 +1001,123 @@ void Game_read_FEN(ChessGame *g, char *filename)
 		c = getc(fp);
 	}
 
+	fclose(fp);
 
 	Game_find_all_legal_moves(g);
 }
 
 
 
+/****************************
+ *         MOVIE            *
+ ***************************/
+
+Movie *Movie_create()
+{
+	Movie *movie = (Movie*)malloc(sizeof(Movie));
+	movie->current_turn = 0;
+	movie->length = 0;
+
+	return movie;
+}
+
+void Movie_destroy(Movie *m)
+{
+	int i;
+	for (i = 0; i < m->length; i++)
+		Game_destroy(m->games[i]);
+	free(m);
+}
+
+int Movie_add(Movie *movie, ChessGame *game)
+{
+	if (movie->length < MOVIE_CAPACITY){
+		movie->games[movie->length] = Game_create();
+		Game_copy(game, movie->games[movie->length]);
+		movie->length++;
+		return 1;
+	}
+	printf("Movie capacity reached!\n");
+	return 0;
+}
+
+/* Helper function. Checks through [game]'s moves
+ * and returns the index of the move that has the
+ * same name as [movename]. If none, returns -1. */
+int move_index_from_string(ChessGame *game, char *movename)
+{
+	int i;
+	for (i = 0; i < game->num_possible_moves; i++){
+		Move_set_shorttitle(&game->current_possible_moves[i], game);
+		if (strcmp(movename, game->current_possible_moves[i].title) == 0)
+			return i;
+	}
+	return -1;
+}
 
 
+Movie *Movie_create_from_PGN(char *filename)
+{
+	FILE *fp = fopen(filename, "r");
+	if (fp == NULL){
+		printf("File doesn't exist oh no\n");
+		return NULL;
+	}
+	ChessGame *game = Game_create();
+	Movie *movie    = Movie_create();
+	int c = 0;
+	char current_word[100];
+	int is_move, word_index, move_index;
 
+	Movie_add(movie, game);
+		
+	while (c != EOF)
+	{
+		is_move = 1;
+
+		/* Scroll through whitespace, to next word. */
+		while((c = getc(fp)) == ' ' || c == '\n');
+
+		/* Grab next word */
+		word_index = 0;
+		while (c != ' ' && c != '\n' && c != EOF){
+			/* If first letter is a number, then it's
+			 * not a move word. */
+			if (word_index == 0 && c >= '1' && c <= '9')
+				is_move = 0;
+
+			current_word[word_index++] = c;
+			c = getc(fp);
+		}
+		current_word[word_index] = '\0';
+		if (c == EOF)	is_move = 0;
+
+		if (is_move)
+		{
+			move_index = move_index_from_string(game, &current_word[0]);
+			if (move_index == -1){
+				printf("move index not found! Oh no.\n");
+				printf("The halfturn is: %d \n", movie->length);
+				printf("The move is: %s \n", current_word);
+				printf("\n\nHere is each of the available moves:\n");
+				int j;
+				for (j = 0; j < game->num_possible_moves; j++){
+					Move_set_shorttitle(&game->current_possible_moves[j], game);
+					printf("%s\n", game->current_possible_moves[j].title);
+				}
+				return NULL;
+			}
+			movie->move_indices[movie->length - 1] = move_index;
+			Game_advanceturn_index(game, move_index);
+			Movie_add(movie, game);
+		}
+	}
+
+	fclose(fp);
+
+	Game_destroy(game);
+	return movie;
+}
 
 #if 0
 

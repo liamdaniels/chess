@@ -3,6 +3,11 @@
 
 #define MOVE_TITLE_SIZE 10
 
+/* Can be, like, gigantic, because I'm gonna
+ * store pointers and just create a new Game for
+ * each new move. */
+#define MOVIE_CAPACITY 600
+
 /* Looking it up, no real life game has ever had more than
  * 99 moves possible at once so I'd say this is a safe bet.
  * Composed games, however, can go up past 400 possible so
@@ -19,7 +24,7 @@ typedef enum { NONE, QUEENSIDE, KINGSIDE, BOTH } CastlingRights;
 
 typedef enum { PLAYING, WHITE, BLACK, DRAW } GameCondition;
 
-
+/* STRUCTS */
 
 
 /* POSITION struct: holds info on... position, such as who is to
@@ -47,23 +52,6 @@ typedef struct chess_pos_t {
 	ChessPiece piece_locations[64];
 } Position;
 
-/* Position functions */
-
-/* Allocate new position in memory. For now: set beginning position
- * to beginning chess game position (it sounds sensible). */
-Position *Position_create();
-
-/* Frees the position from the heap. */
-void Position_destroy(Position *p);
-
-/* Returns true (1) if square at column [col], row [row] is attacked
- * by the opposite color piece, else false (0). */
-int Position_is_attacked(Position *p, int col, int row);
-
-/* Returns true (1) if the player to move is in check in this 
- * position, else false (0). */
-int Position_in_check(Position *p);
-
 
 
 
@@ -84,27 +72,6 @@ typedef struct chess_move_t {
 	char title[MOVE_TITLE_SIZE];
 } Move;
 
-/* Move functions */
-
-/* Set the "title" field of [move] given chess position [pos]. 
- * Short title means a short PGN title like "Nc3" or something. */
-void Move_set_shorttitle(Move *move, Position *pos);
-
-/* Returns true (1) if move is a capture, else false (0) */
-int Move_is_capture(Move move, Position *pos);
-
-/* Returns 1 if move is kingside castle, 2 if move is queenside castle,
- * 0 if no castle. Assumes that move is with the king. */
-int Move_castle_type(Move move);
-
-
-
-/* Misc stuff */
-
-/* Converts to and from PGN-style square like "e4" */
-/* TODO: is this even necessary? Lol */
-int pgn_to_rowcol(char *pgn);
-
 
 
 
@@ -116,6 +83,64 @@ typedef struct chess_game_t {
 	 * MAX_MOVES in the possible moves. */
 	int num_possible_moves;
 } ChessGame;
+
+
+/* MOVIE struct: contains a collection of ChessGames,
+ * one for each half-move, in an arraylist-esque way. */
+typedef struct chess_movie_t {
+	ChessGame *games[MOVIE_CAPACITY];
+	int move_indices[MOVIE_CAPACITY];
+	int current_turn;
+	int length;
+} Movie;
+
+
+
+
+
+
+
+
+
+/* Position functions */
+
+/* Allocate new position in memory. For now: set beginning position
+ * to beginning chess game position (it sounds sensible). */
+Position *Position_create();
+
+/* Frees the position from the heap. */
+void Position_destroy(Position *p);
+
+/* Returns true (1) if square at column [col], row [row] is attacked
+ * by the opposite color piece, else false (0). */
+int Position_is_attacked(Position *p, int col, int row);
+
+/* Returns true (1) if the player to move is in check in this 
+ * position, else false (0). */
+int Position_in_check(Position *p);
+
+
+
+
+
+/* Move functions */
+
+/* Set the "title" field of [move] given chess position [pos]. 
+ * Short title means a short PGN title like "Nc3" or something. */
+void Move_set_shorttitle(Move *move, ChessGame *game);
+
+/* Returns true (1) if move is a capture, else false (0) */
+int Move_is_capture(Move move, Position *pos);
+
+/* Returns 1 if move is kingside castle, 2 if move is queenside castle,
+ * 0 if no castle. Assumes that move is with the king. */
+int Move_castle_type(Move move);
+
+
+
+
+
+
 
 /* ChessGame functions */
 
@@ -153,3 +178,34 @@ GameCondition Game_advanceturn_index(ChessGame *g, int move_index);
  * there's no protection against it and the board will probs be
  * invalid or exhibit undefined behavior. */
 void Game_read_FEN(ChessGame *g, char *filename);
+
+
+
+/* Movie Functions */
+
+Movie *Movie_create();
+void Movie_destroy(Movie *m);
+
+/* Adds a copy of [game] to the movie list.
+ * Returns 1 if successful, else 0. */
+int Movie_add(Movie *movie, ChessGame *game);
+
+/* Parses the PGN file from [filename] and 
+ * fills up a new movie object with its positions. 
+ * Cannot include comments or before tags, for now,
+ * so remove those if copy-pasting from online. Also
+ * does not work (for now) with move annotations like
+ * ! and ?. */
+Movie *Movie_create_from_PGN(char *filename);
+
+
+
+
+
+
+
+
+/* Misc stuff */
+
+/* Converts to and from PGN-style square like "e4" */
+int pgn_to_rowcol(char *pgn);

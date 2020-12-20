@@ -44,7 +44,7 @@ int main(int argc, char **argv)
 			current_move = ChessBot_find_next_move(player_2);
 		}
 
-		Move_set_shorttitle(&current_move, game->current_pos);
+		Move_set_shorttitle(&current_move, game);
 		printf("%s   ", current_move.title);
 
 		status = Game_advanceturn(game, current_move);

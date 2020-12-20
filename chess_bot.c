@@ -27,12 +27,6 @@ void ChessBot_destroy(ChessBot *bot)
 	free(bot);
 }
 
-/* TODO: put this elsewhere. But for now... */
-int min_oppt_moves_eval(ChessGame *g)
-{
-	return -1 * g->num_possible_moves;
-}
-
 Move ChessBot_find_next_move(ChessBot *bot)
 {
 	/* Will be finding index, and then indexing in the legal
@@ -84,3 +78,12 @@ int ChessBot_position_eval(ChessBot *bot, int (*eval_game)(ChessGame *g))
 	Game_destroy(game_copy);
 	return max_index;
 }
+
+
+/* SPECIFIC BOTS */
+
+int min_oppt_moves_eval(ChessGame *g)
+{
+	return -1 * g->num_possible_moves;
+}
+

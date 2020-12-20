@@ -30,3 +30,9 @@ Move ChessBot_find_next_move(ChessBot *bot);
  * in the ChessBot by making copies for each possible move and seeing which
  * evals the highest. Returns the index of the highest-evalling move. */
 int ChessBot_position_eval(ChessBot *bot, int (*eval_game)(ChessGame *g));
+
+
+
+
+/* Evals for simpler bots */
+int min_oppt_moves_eval(ChessGame *g);

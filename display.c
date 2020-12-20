@@ -78,12 +78,21 @@ typedef struct {
 	int str_position;
 
 	GameCondition game_status;
+	/* True if game is over and all moves have been
+	 * written, else false. */
+	int end_status_written;
 
 	/* Plays against human player, if applicable. */
 	ChessBot *bot;
 	/* True if bot is playing, false if 2 humans are playing or
 	 * if we are watching a movie. */
 	int bot_playing;
+
+	/* Movie of game */
+	Movie *movie;
+	/* Whether movie is being played from
+	 * file (1) or not (0). */
+	int is_file_movie;
 
 } UI_container;
 
@@ -175,7 +184,7 @@ void draw(UI_container *ui)
 void UI_write_move(UI_container *ui, Move move)
 {
 	/* Set move title */
-	Move_set_shorttitle(&move, ui->game->current_pos);
+	Move_set_shorttitle(&move, ui->game);
 	
 	int pos = ui->str_position;
 
@@ -269,7 +278,8 @@ void loop(UI_container *ui)
 			/* Manage move */
 			if (move_selection && 
 				(!ui->bot_playing ||
-				 ui->game->current_pos->to_move != ui->bot->color)){
+				 ui->game->current_pos->to_move != ui->bot->color)
+				&& !ui->is_file_movie ){
 
 				if (ui->move.src == -1)
 					ui->move.src = ui->col_selected + (8 * ui->row_selected);
@@ -301,11 +311,38 @@ void loop(UI_container *ui)
 				}
 			}
 
-			if (ui->game_status != PLAYING)
-				UI_write_endscore(ui);			
+			if (ui->game_status != PLAYING){
+				if (!ui->end_status_written){
+					UI_write_endscore(ui);			
+					ui->end_status_written = 1;
+				}
+			}
+			else if (ui->anim.active){
+				/* Do nothing. Necessary if player makes move
+				 * we want animation to play out, so nothing 
+				 * should be done here. */
+			}
+			else if (ui->is_file_movie){
+				/* Keep on scrolling thru movie */
+				int movie_movind =
+							 ui->movie->move_indices[ui->movie->current_turn];
+				Move movie_move = ui->game->current_possible_moves[movie_movind];
+				
+				UI_write_move(ui, movie_move);
+				ui->game_status = Game_advanceturn(ui->game, movie_move);
+				anim_begin(ui, movie_move.src, movie_move.dest);
+
+				/* If players agreed to draw in this position, then update
+				 * game status as such. */
+				if (ui->movie->current_turn == ui->movie->length - 2 &&
+					ui->game_status == PLAYING)
+					ui->game_status = DRAW;
+
+				ui->movie->current_turn++;
+			}
 			else if (ui->bot_playing && 
-					 !ui->anim.active &&
-					 ui->game->current_pos->to_move == ui->bot->color){
+					 ui->game->current_pos->to_move == ui->bot->color
+					 ){
 				/* Bot move! */
 				Move bot_move = ChessBot_find_next_move(ui->bot);
 				UI_write_move(ui, bot_move);
@@ -314,8 +351,6 @@ void loop(UI_container *ui)
 				/* Animation */
 				anim_begin(ui, bot_move.src, bot_move.dest);
 
-				if (ui->game_status != PLAYING)
-					UI_write_endscore(ui);			
 			}
 		}
 		else{
@@ -367,11 +402,15 @@ void UI_assign_defaults(UI_container *ui)
 	ui->anim.frame = 0;
 	ui->anim.src = ui->anim.dest = 0;
 	ui->anim.drawx = ui->anim.drawy = 0;
+
+	ui->end_status_written = 0;
 }
 
 #define BOT_ALGO MIN_OPPT_MOVES
 #define STARTING_FROM_FEN 0
 #define FENFILE "games/FEN/ep_checkmate_test"
+#define LOAD_MOVIE 1
+#define MOVIEFILE "games/PGN/fischer_spas.txt"
 
 int main(int argc, char **argv)
 {
@@ -389,6 +428,19 @@ int main(int argc, char **argv)
 	if (STARTING_FROM_FEN)
 		Game_read_FEN(ui.game, FENFILE);
 
+	/* Movie */
+	ui.is_file_movie = LOAD_MOVIE;	
+	if (LOAD_MOVIE){
+		ui.movie = Movie_create_from_PGN(MOVIEFILE);
+		if (ui.movie == NULL){
+			printf("Something went wrong. Not initializing movie.\n");
+			ui.is_file_movie = 0;
+			ui.movie = Movie_create();
+		}
+	}
+	else
+		ui.movie = Movie_create();
+
 
 	SDLUTIL_begin(SDL_INIT_VIDEO, &(ui.winrend), WIN_W, WIN_H, "chess");
 	UI_assign_defaults(&ui);
@@ -399,6 +451,7 @@ int main(int argc, char **argv)
 	ChessBot_destroy(ui.bot);
 	Game_destroy(ui.game);
 	Sprite_destroy(ui.pieces_spr);
+	Movie_destroy(ui.movie);
 	Font_destroy(ui.font);
 	SDLUTIL_end(&(ui.winrend));
 	return 0;
